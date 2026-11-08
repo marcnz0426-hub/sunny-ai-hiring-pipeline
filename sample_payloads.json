@@ -1,0 +1,78 @@
+{
+  "test_cases": [
+    {
+      "id": "applicant_pass_high_score",
+      "description": "Strong candidate with AI build experience and high alignment",
+      "payload": {
+        "full_name": "Marc Neil Zapanta",
+        "email": "marc.zapanta@example.com",
+        "phone": "+639171234567",
+        "position": "AI Operator",
+        "years_experience": 5,
+        "portfolio_url": "https://marc-portfolio-sigma.vercel.app/projects/agency-client-intake-workflow",
+        "cover_letter": "I have built production AI hiring and intake pipelines using Make.com, n8n, Claude 3.5 Sonnet, and OpenRouter with structured JSON schemas and robust error handling. I bring 5+ years of customer operations experience in the middle of companies.",
+        "resume_url": "https://drive.google.com/file/d/example_marc_resume/view",
+        "availability_start": "Immediately (within 14 days)",
+        "location": "Philippines"
+      }
+    },
+    {
+      "id": "applicant_borderline_review",
+      "description": "Candidate with relevant operations skills but less explicit AI portfolio proof",
+      "payload": {
+        "full_name": "Alex Morales",
+        "email": "alex.morales@example.com",
+        "phone": "+639189876543",
+        "position": "AI Operator",
+        "years_experience": 3,
+        "portfolio_url": "https://github.com/alexmorales-ops",
+        "cover_letter": "I managed Zapier automations and CRM operations for e-commerce stores, routing customer tickets and syncing order updates. Looking to expand into AI operations.",
+        "resume_url": "https://drive.google.com/file/d/example_alex_resume/view",
+        "availability_start": "2 weeks notice",
+        "location": "Philippines"
+      }
+    },
+    {
+      "id": "applicant_reject_low_fit",
+      "description": "Applicant outside target geography with zero technical/automation experience",
+      "payload": {
+        "full_name": "John Smith",
+        "email": "john.smith@example.com",
+        "phone": "+14155552671",
+        "position": "AI Operator",
+        "years_experience": 0,
+        "portfolio_url": "",
+        "cover_letter": "I use ChatGPT to summarize articles and write emails. Excited to learn.",
+        "resume_url": "https://drive.google.com/file/d/example_john_resume/view",
+        "availability_start": "Next month",
+        "location": "United States"
+      }
+    }
+  ],
+  "qualifying_response_test_case": {
+    "applicant_email": "marc.zapanta@example.com",
+    "applicant_name": "Marc Neil Zapanta",
+    "answers": [
+      {
+        "question_id": 1,
+        "answer": "When building an agency intake scenario in Make, I encountered a 403 Insufficient Scopes error on the Gmail module because the OAuth token lacked compose permissions. I resolved it by decoupling the signature mapping and re-authenticating with granular compose scopes."
+      },
+      {
+        "question_id": 2,
+        "answer": "I caught an LLM hallucinating hosting credentials during pre-sales scoping. I fixed it by enforcing a two-stage prompt taxonomy that separated raw fact extraction from scope evaluation."
+      },
+      {
+        "question_id": 3,
+        "answer": "Production-ready means defensive engineering: retry directives with backoff, strict JSON parsing validation, dead-letter quarantine for failures, and out-of-band alerting."
+      },
+      {
+        "question_id": 4,
+        "answer": "I would implement a 40-69 score review queue with automatic Slack/email alerts to the hiring team so borderline applicants with transferable CX skills are never dropped."
+      },
+      {
+        "question_id": 5,
+        "answer": "My most complex build was a multi-tier intake engine integrating webhooks, OpenRouter REST API, structured JSON parsing, router branching, and dual cloud persistence."
+      }
+    ]
+  }
+}

@@ -1,0 +1,610 @@
+﻿{
+  "name": "Sunny - AI Qualifying Response Evaluator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qualifying-response",
+        "options": {
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -288,
+        128
+      ],
+      "id": "fc29257d-b7a1-4489-9c91-6ce00b2d1822",
+      "name": "Qualifying Intake Webhook",
+      "webhookId": "7e843dab-0f6d-4ef4-b7ed-38aea2528830"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Applications",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json.body.applicant_email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        0
+      ],
+      "id": "ec4c4ebe-f056-4e48-bd0e-75a061b0b016",
+      "name": "Lookup Stage 1 Profile",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type    ",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer    ",
+              "value": "=https://marc-portfolio-sigma.vercel.app"
+            },
+            {
+              "name": "X-Title",
+              "value": "Sunny AI Hiring Pipeline"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n  JSON.stringify({\n    model: \"openrouter/free\",\n    temperature: 0.2,\n    messages: [\n      {\n        role: \"system\",\n        content: `You are \"Jev\", the Senior Technical Evaluator AI Agent for Sunny.\n\nYour mission is to evaluate a candidate's completed answers to the 5 technical qualifying questions they were assigned during Stage 1 screening.\n\nASSESSMENT CRITERIA:\n1. Technical Depth: Concrete, verifiable technical details (e.g., specific HTTP error codes, OAuth scopes, schema structures).\n2. Problem-Solving & Debug Mindset: Systematic root-cause troubleshooting rather than guesswork.\n3. Production Hardening: Defensive reliability (retries, timeouts, logging, dead-letter queues).\n4. Practical Alignment: How well does their problem-solving align with high-volume, middle-of-the-company operational workflows?\n\nOUTPUT FORMAT:\nRespond with ONLY a raw unformatted JSON object. Do NOT wrap in markdown backticks.\n\nSCHEMA:\n{\n  \"applicant_name\": string,\n  \"answer_evaluations\": [\n    { \"question_id\": number, \"score\": number, \"notes\": string }\n  ],\n  \"overall_qualifying_score\": number,\n  \"recommendation\": \"ADVANCE\" | \"HOLD\",\n  \"summary_for_hiring_manager\": string,\n  \"suggested_interview_focus\": string\n}`\n      },\n      {\n        role: \"user\",\n        content: `Candidate Submission to Evaluate:\nFull Name: ${$('Lookup Stage 1 Profile').item.json['Full Name']}\nEmail: ${$('Lookup Stage 1 Profile').item.json['Email']}\nPosition: ${$('Lookup Stage 1 Profile').item.json['Position']}\nStage 1 Score: ${$('Lookup Stage 1 Profile').item.json['Overall Score']}\nStage 1 Reasoning: ${$('Lookup Stage 1 Profile').item.json['Jev Reasoning']}\nPortfolio URL: ${$('Lookup Stage 1 Profile').item.json['Portfolio URL']}\n\nCandidate Answers:\n${$('Qualifying Intake Webhook').item.json.body.answers.map(a => `Question ${a.question_id}: ${a.question}\\nAnswer: ${a.answer}`).join('\\n\\n')}`\n      }\n    ]\n  })\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c31d832d-8fc6-4657-8d6b-a2628058d132",
+      "name": "HR AI Evaluator - Stage 2",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawContent = $json.choices[0].message.content;\n\n// 1. Defensive cleanup: strip markdown fences\nlet cleaned = rawContent.replace(/```json/gi, '').replace(/```/g, '').trim();\n\n// 2. Self-healing: slice strictly between the first { and last }\nconst firstBrace = cleaned.indexOf('{');\nconst lastBrace = cleaned.lastIndexOf('}');\nif (firstBrace !== -1 && lastBrace !== -1) {\n  cleaned = cleaned.substring(firstBrace, lastBrace + 1);\n}\n\nlet parsed;\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(\"Failed to parse Jev Stage 2 evaluation JSON: \" + e.message + \" | Raw: \" + rawContent);\n}\n\n// 3. Hydrate Stage 1 context & calculate weighted score\nconst stage1Data = $('Lookup Stage 1 Profile').item.json;\nconst stage1Score = Number(stage1Data['Overall Score']) || 0;\nconst stage2Score = Number(parsed.overall_qualifying_score) || 0;\n\n// Combined score: 40% Stage 1 Screening + 60% Stage 2 Technical Depth\nconst combinedScore = Math.round((stage1Score * 0.4 + stage2Score * 0.6) * 10) / 10;\n\n// Business Decision: ADVANCE (>= 70) vs HOLD (< 70)\nconst recommendation = (parsed.recommendation && parsed.recommendation.toUpperCase() === 'ADVANCE') || stage2Score >= 70 \n  ? 'ADVANCE' \n  : 'HOLD';\n\n// Title-case applicant name\nconst applicantName = (parsed.applicant_name || stage1Data['Full Name'] || 'Applicant')\n  .trim()\n  .replace(/\\s+/g, ' ')\n  .toLowerCase()\n  .replace(/\\b\\w/g, c => c.toUpperCase());\n\nreturn [\n  {\n    json: {\n      timestamp: new Date().toISOString(),\n      applicant_name: applicantName,\n      email: stage1Data['Email'] || $('Qualifying Intake Webhook').item.json.body.applicant_email,\n      position: stage1Data['Position'] || 'AI Operator',\n      stage1_score: stage1Score,\n      stage2_score: stage2Score,\n      combined_score: combinedScore,\n      recommendation: recommendation,\n      summary_for_hiring_manager: parsed.summary_for_hiring_manager || 'Candidate completed Stage 2 technical evaluation.',\n      suggested_interview_focus: parsed.suggested_interview_focus || 'Review error handling and architecture.',\n      answer_evaluations: parsed.answer_evaluations || []\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "2eb046a3-75bc-4eaf-a4e8-78c1c0e76574",
+      "name": "Parse & Validate Evaluation"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 485077121,
+          "mode": "list",
+          "cachedResultName": "Qualifying Responses   ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=485077121"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $json.timestamp }}",
+            "Full Name": "={{ $json.applicant_name }}",
+            "Email": "={{ $json.email }}",
+            "Stage 1 Score": "={{ $json.stage1_score }}",
+            "Stage 2 Score": "={{ $json.stage2_score }}    ",
+            "Recommendation": "={{ $json.recommendation }}    ",
+            "Hiring Manager Summary": "={{ $json.summary_for_hiring_manager }}    ",
+            "Suggested Interview Focus": "={{ $json.suggested_interview_focus }}            "
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Stage 1 Score",
+              "displayName": "Stage 1 Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Stage 2 Score",
+              "displayName": "Stage 2 Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recommendation",
+              "displayName": "Recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Hiring Manager Summary",
+              "displayName": "Hiring Manager Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Suggested Interview Focus",
+              "displayName": "Suggested Interview Focus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        896,
+        0
+      ],
+      "id": "9d07d032-cbd2-4358-a0e6-6516d49d90d8",
+      "name": "Log Qualifying Evaluation",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json['Stage 2 Score'] }}",
+                    "rightValue": 70,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "4f81bcbc-f9e4-40e0-9c3a-36ea71319737"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ADVANCE"
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "bb918039-beab-4c8c-949c-4ea03cc0d3f8",
+      "name": "Decision Router"
+    },
+    {
+      "parameters": {
+        "sendTo": "marcneilbiz1@gmail.com",
+        "subject": "=⚠️ [HOLD Review] Stage 2 Technical Assessment — {{ $('Parse & Validate Evaluation').item.json.applicant_name }} (Score: {{ $('Parse & Validate Evaluation').item.json.stage2_score }})",
+        "message": "=<h3>⚠️ Candidate Qualifying Responses Require Human Review</h3>\n\n<p>Candidate <strong>{{ $('Parse & Validate Evaluation').item.json.applicant_name }}</strong> has completed their Stage 2 technical qualifying evaluation. Because their score fell slightly below the automatic advance cutoff (Threshold: 70), Jev has quarantined the profile into the <strong>HOLD</strong> review queue for your manual determination.</p>\n\n<table border=\"1\" cellpadding=\"8\" style=\"border-collapse: collapse; border-color: #ddd;\">\n  <tr style=\"background-color: #f8f9fa;\">\n    <th>Metric</th>\n    <th>Score / Detail</th>\n  </tr>\n  <tr>\n    <td><strong>Applicant Name</strong></td>\n    <td>{{ $('Parse & Validate Evaluation').item.json.applicant_name }}</td>\n  </tr>\n  <tr>\n    <td><strong>Primary Key (Email)</strong></td>\n    <td><code>{{ $('Parse & Validate Evaluation').item.json.email }}</code> <em>(Ctrl+F to locate instantly)</em></td>\n  </tr>\n  <tr>\n    <td><strong>Stage 1 Database Location</strong></td>\n    <td><strong>Row #{{ $('Lookup Stage 1 Profile').item.json.row_number }}</strong> (in <em>Applications</em> tab)</td>\n  </tr>\n  <tr>\n    <td><strong>Stage 1 Screening Score</strong></td>\n    <td>{{ $('Parse & Validate Evaluation').item.json.stage1_score }}/100</td>\n  </tr>\n  <tr>\n    <td><strong>Stage 2 Qualifying Score</strong></td>\n    <td><strong>{{ $('Parse & Validate Evaluation').item.json.stage2_score }}/100</strong></td>\n  </tr>\n  <tr>\n    <td><strong>Weighted Combined Score</strong></td>\n    <td>{{ $('Parse & Validate Evaluation').item.json.combined_score }}/100</td>\n  </tr>\n  <tr>\n    <td><strong>Jev Recommendation</strong></td>\n    <td><span style=\"color: #d97706; font-weight: bold;\">HOLD (Human Discretion)</span></td>\n  </tr>\n</table>\n\n<h4>📋 Jev Executive Summary:</h4>\n<p style=\"background-color: #fffbeb; padding: 12px; border-left: 4px solid #f59e0b; font-style: italic;\">\n  {{ $('Parse & Validate Evaluation').item.json.summary_for_hiring_manager }}\n</p>\n\n<h4>🎯 Recommended Interview Focus (If Progressing):</h4>\n<p style=\"background-color: #f3f4f6; padding: 12px; border-left: 4px solid #6b7280;\">\n  {{ $('Parse & Validate Evaluation').item.json.suggested_interview_focus }}\n</p>\n\n<p>\n  👉 <a href=\"https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=sharing\"><strong>Open Sunny Database & Press Ctrl+F for \"{{ $('Parse & Validate Evaluation').item.json.email }}\" ↗</strong></a>\n</p>\n\n<hr>\n<p style=\"font-size: 11px; color: #888;\">This automated alert was generated by Sunny AI Hiring Engine — Stage 2 Evaluator.</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        224
+      ],
+      "id": "3589966f-15c6-48e7-b3d9-1553b0814db4",
+      "name": "Alert Hiring Manager (HOLD Review)",
+      "webhookId": "1869d8ae-904d-412d-b207-3a350345a351",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.Email }}",
+        "subject": "🎉 Next Step: Technical Interview Invitation — Sunny AI Operator Position",
+        "message": "=<p>Hi {{ $('Parse & Validate Evaluation').item.json.applicant_name }},</p>  <p>Congratulations! Our engineering and operations evaluation team has reviewed your Stage 2 technical qualifying responses. Your architectural approach and production problem-solving scored strongly against our criteria.</p>  <p>We would love to invite you to the final stage: a <strong>45-minute Technical & Systems Operations Interview</strong> with our lead operator.</p>  <p>During this session, we will discuss your Make.com and n8n pipelines, review your live portfolio projects, and discuss how you approach middle-of-the-company operational bottlenecks.</p>  <p>👉 <a href=\"https://calendly.com/sunny-talent/ai-operator-interview\" target=\"_blank\" style=\"background-color: #2563eb; color: white; padding: 10px 18px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;\">Schedule Your Technical Interview Here 📅</a></p>  <p>Please choose a time that aligns with your schedule. If you have any questions ahead of the call, feel free to reply directly to this thread.</p>  <p>Best regards,<br> <strong>The Sunny Talent & Engineering Team</strong></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        -16
+      ],
+      "id": "2ad3c48d-db19-44d0-ab01-e7694867debb",
+      "name": "Send Interview Booking Invitation",
+      "webhookId": "8b5d42af-8868-4aea-8dc1-68f82be7cf43",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "marcneilbiz1@gmail.com",
+        "subject": "=✅ [ADVANCE Cleared] Stage 2 Complete — {{ $('Parse & Validate Evaluation').item.json.applicant_name }} (Combined Score: {{ $('Parse & Validate Evaluation').item.json.combined_score }})",
+        "message": "=<h3>✅ Candidate Cleared Stage 2 Technical Assessment</h3>  <p>Candidate <strong>{{ $('Parse & Validate Evaluation').item.json.applicant_name }}</strong> has achieved a passing score in the Stage 2 technical evaluation and has been automatically invited to schedule their final technical interview.</p>  <table border=\"1\" cellpadding=\"8\" style=\"border-collapse: collapse; border-color: #ddd;\">   <tr style=\"background-color: #f0fdf4;\">     <th>Metric</th>     <th>Score / Detail</th>   </tr>   <tr>     <td><strong>Applicant Name</strong></td>     <td>{{ $('Parse & Validate Evaluation').item.json.applicant_name }}</td>   </tr>   <tr>     <td><strong>Candidate Email</strong></td>     <td><code>{{ $('Parse & Validate Evaluation').item.json.email }}</code></td>   </tr>   <tr>     <td><strong>Stage 1 Screening Score</strong></td>     <td>{{ $('Parse & Validate Evaluation').item.json.stage1_score }}/100</td>   </tr>   <tr>     <td><strong>Stage 2 Technical Score</strong></td>     <td><strong>{{ $('Parse & Validate Evaluation').item.json.stage2_score }}/100</strong></td>   </tr>   <tr>     <td><strong>Weighted Combined Score</strong></td>     <td><strong style=\"color: #16a34a;\">{{ $('Parse & Validate Evaluation').item.json.combined_score }}/100</strong></td>   </tr>   <tr>     <td><strong>Status</strong></td>     <td><span style=\"color: #16a34a; font-weight: bold;\">ADVANCED &bull; Interview Invite Dispatched</span></td>   </tr> </table>  <h4>📋 Jev Executive Summary:</h4> <p style=\"background-color: #f0fdf4; padding: 12px; border-left: 4px solid #22c55e;\">   {{ $('Parse & Validate Evaluation').item.json.summary_for_hiring_manager }} </p>  <p>👉 <a href=\"https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=sharing\"><strong>View Candidate in Sunny Master Database ↗</strong></a></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        -464
+      ],
+      "id": "39cf7b81-62c3-4649-8667-9f2b71edb2dd",
+      "name": "Alert Hiring Manager (ADVANCE Summary)",
+      "webhookId": "2ed4f6ac-f589-40e2-93e7-eb6b0630518d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "marcneilbiz1@gmail.com",
+        "subject": "=📋 [Interviewer Pre-Brief] Technical Interview Guide — {{ $('Parse & Validate Evaluation').item.json.applicant_name }}",
+        "message": "=<h3>📋 Technical Interviewer Pre-Briefing Guide</h3>  <p>You are scheduled to interview <strong>{{ $('Parse & Validate Evaluation').item.json.applicant_name }}</strong> for the <strong>AI Operator</strong> position at Sunny.</p>  <p>Below is Jev's tailored AI pre-briefing sheet, compiled from their application and Stage 2 technical responses:</p>  <table border=\"1\" cellpadding=\"8\" style=\"border-collapse: collapse; border-color: #ddd;\">   <tr style=\"background-color: #f8f9fa;\">     <th>Item</th>     <th>Detail</th>   </tr>   <tr>     <td><strong>Candidate</strong></td>     <td>{{ $('Parse & Validate Evaluation').item.json.applicant_name }} ({{ $('Parse & Validate Evaluation').item.json.email }})</td>   </tr>   <tr>     <td><strong>Screening Performance</strong></td>     <td>Stage 1: {{ $('Parse & Validate Evaluation').item.json.stage1_score }}/100 | Stage 2: {{ $('Parse & Validate Evaluation').item.json.stage2_score }}/100</td>   </tr>   <tr>     <td><strong>Portfolio Project</strong></td>     <td><a href=\"{{ $('Lookup Stage 1 Profile').item.json['Portfolio URL'] }}\" target=\"_blank\">{{ $('Lookup Stage 1 Profile').item.json['Portfolio URL'] }}</a></td>   </tr> </table>  <h4>🎯 Recommended Drill-Down Questions for the Interview:</h4> <div style=\"background-color: #f8fafc; padding: 14px; border-left: 4px solid #3b82f6; font-size: 14px; line-height: 1.6;\">   {{ $('Parse & Validate Evaluation').item.json.suggested_interview_focus }} </div>  <h4>💡 Suggested Probing Strategy:</h4> <ul>   <li>Ask the candidate to screenshare their n8n / Make architecture and walk through one live error scenario.</li>   <li>Probe specifically on defensive engineering: how do they handle API rate limits and webhook idempotency?</li>   <li>Evaluate their communication clarity: can they explain complex automated workflows to non-technical stakeholders?</li> </ul>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        -240
+      ],
+      "id": "79c0db8b-d082-47fd-97bc-2b54309f1dfe",
+      "name": "Send Interviewer Pre-Briefing Sheet",
+      "webhookId": "beb03a9a-f15f-486e-9f23-2c46f76259d9",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 485077121,
+          "mode": "list",
+          "cachedResultName": "Qualifying Responses   ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=485077121"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json.body.applicant_email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -64,
+        128
+      ],
+      "id": "0619a074-f1db-4b9e-bab2-b935b109c3d7",
+      "name": "Check Existing Stage 2 Submission",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "a8a79691-7103-47a2-963f-a9946e1eb4d9",
+              "leftValue": "={{ $json.Email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        32,
+        -192
+      ],
+      "id": "8591356d-1d75-419c-9d22-68263e64bef3",
+      "name": "Already Submitted?"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Qualifying Intake Webhook').item.json.body.applicant_email }}",
+        "subject": "Update on your Qualifying Submission — Sunny AI Operator Application",
+        "message": "=<p>Hi {{ $('Qualifying Intake Webhook').item.json.body.applicant_name }},</p>  <p>We received your recent submission. Our records show that we have already logged your technical qualifying responses on <strong>{{ $json.Timestamp }}</strong>.</p>  <p>Your evaluation is currently under active review by our talent and engineering team. You do not need to resubmit your answers.</p>  <p>If you have urgent updates to your portfolio or availability, feel free to reply directly to this email.</p>  <p>Best regards,<br> <strong>The Sunny Talent Team</strong></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        176,
+        -384
+      ],
+      "id": "f32af28f-0dac-4f7f-9629-ed779c7f8031",
+      "name": "Send Duplicate Notice Email",
+      "webhookId": "c4ee0b60-c8b9-4d2a-859a-b47bb00d2d98",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Qualifying Intake Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Stage 2 Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Stage 1 Profile": {
+      "main": [
+        [
+          {
+            "node": "HR AI Evaluator - Stage 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HR AI Evaluator - Stage 2": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Log Qualifying Evaluation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Qualifying Evaluation": {
+      "main": [
+        [
+          {
+            "node": "Decision Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decision Router": {
+      "main": [
+        [
+          {
+            "node": "Send Interview Booking Invitation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Alert Hiring Manager (ADVANCE Summary)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Interviewer Pre-Briefing Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Hiring Manager (HOLD Review)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Stage 2 Submission": {
+      "main": [
+        [
+          {
+            "node": "Already Submitted?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Submitted?": {
+      "main": [
+        [
+          {
+            "node": "Send Duplicate Notice Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Stage 1 Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "9300ca56-43c0-43e6-a964-f522176d0c2a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "58d37d6e04d4c984684ef05422a30b0da4e2d43c399c6afb7f8bd18f64eedc73"
+  },
+  "nodeGroups": [],
+  "id": "7GBo0ZmrIcSQIIHC",
+  "tags": []
+}

@@ -1,0 +1,798 @@
+﻿{
+  "name": "AI Hiring Intake & Agent Screening",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "applicant-intake",
+        "options": {
+          "rawBody": "={{ {\"status\": \"received\"} }}",
+          "responseCode": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -192,
+        16
+      ],
+      "id": "1e068098-564c-4f0c-b8fb-f2726996d527",
+      "name": "Webhook",
+      "webhookId": "5a4e0897-48af-444a-b54f-58f47adce332"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1. Get raw LLM response and strip any code fences\nconst rawText = $input.item.json.choices[0].message.content;\nconst cleaned = rawText.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();\n\n// 2. 🛡️ Self-Healing JSON Extractor\nlet evaluation;\ntry {\n  // Try normal parse first\n  evaluation = JSON.parse(cleaned);\n} catch (err) {\n  // If the model had conversational thoughts or restarted, grab from the last '{'\n  const lastStart = cleaned.lastIndexOf('{');\n  const lastEnd = cleaned.lastIndexOf('}');\n  if (lastStart !== -1 && lastEnd > lastStart) {\n    const isolatedJson = cleaned.slice(lastStart, lastEnd + 1);\n    evaluation = JSON.parse(isolatedJson);\n  } else {\n    throw new Error(\"Unable to extract valid JSON from LLM: \" + err.message);\n  }\n}\n\n// 3. Grab candidate data from Edit node\nconst candidate = $('Edit').first().json;\n\n// 4. 🧼 DATA HYGIENE: Auto-format applicant name to clean Title Case\nconst nameKey = candidate.full_name ? 'full_name' : 'applicant_name';\nif (candidate[nameKey]) {\n  candidate[nameKey] = candidate[nameKey]\n    .trim()\n    .replace(/\\s+/g, ' ')\n    .toLowerCase()\n    .replace(/\\b\\w/g, char => char.toUpperCase());\n}\n\n// 5. Return unified dossier\nreturn {\n  json: {\n    ...candidate,\n    ...evaluation\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        144
+      ],
+      "id": "360747aa-6a81-4e58-9ec3-96cba5ceec88",
+      "name": "Parse & Validate Evaluation."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Parse & Validate Evaluation.').item.json.overall_score }}",
+                    "rightValue": 70,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "7af78208-1c67-4187-aa5b-a082954e5577"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "PASS (>= 70)"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "066de0e0-1022-414c-9ec9-6f07bdb547e3",
+                    "leftValue": "={{ $('Parse & Validate Evaluation.').item.json.overall_score }}",
+                    "rightValue": 40,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "MAYBE (40-69)"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1424,
+        128
+      ],
+      "id": "505665b6-bfac-4388-afd5-573a56c776c6",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5590c8d9-c2a0-4cba-8a55-da8b50408e67",
+              "name": "full_name",
+              "value": "={{ $('Webhook').item.json.body.full_name }}",
+              "type": "string"
+            },
+            {
+              "id": "d0d29677-8bc4-448f-a29e-7546637dde1e",
+              "name": "email",
+              "value": "={{ $('Webhook').item.json.body.email }}",
+              "type": "string"
+            },
+            {
+              "id": "729eba65-4182-43cc-a0f3-2ca343c3f461",
+              "name": "position",
+              "value": "={{ $('Webhook').item.json.body.position }}",
+              "type": "string"
+            },
+            {
+              "id": "e7f5d7be-2843-4184-aac3-44bddae45a3d",
+              "name": "years_experience",
+              "value": "={{ $('Webhook').item.json.body.years_experience }}",
+              "type": "string"
+            },
+            {
+              "id": "9c2ea940-91d8-493d-b3db-f6fca9ad23b3",
+              "name": "portfolio_url",
+              "value": "={{ $('Webhook').item.json.body.portfolio_url }}",
+              "type": "string"
+            },
+            {
+              "id": "e3177fed-cf92-46fa-ab8f-f97708e02a19",
+              "name": "cover_letter",
+              "value": "={{ $('Webhook').item.json.body.cover_letter }}",
+              "type": "string"
+            },
+            {
+              "id": "83feb876-0dbe-45b5-bf20-9afec591591b",
+              "name": "availability_start",
+              "value": "={{ $('Webhook').item.json.body.availability_start }}",
+              "type": "string"
+            },
+            {
+              "id": "c4f0c806-66c2-4b54-936a-f30b7f639990",
+              "name": "location",
+              "value": "={{ $('Webhook').item.json.body.location }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        480,
+        144
+      ],
+      "id": "f8b4b07b-fa2f-49f3-a629-9193951b695d",
+      "name": "Edit"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_OPENROUTER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "https://wundermgmt.com"
+            },
+            {
+              "name": "X-Title",
+              "value": "https://wundermgmt.com"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openrouter/free\",\n  \"temperature\": 0.2,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are Jev, the Senior Technical Evaluator AI Agent for Wunder Management. Evaluate incoming applicants for the AI Operator role with objective rigor.\\n\\nCRITERIA (1-100):\\n- experience_score (1-10): Years in operations, automation, or technical workflow management.\\n- portfolio_quality (1-10): Evidence of working tools, live projects, GitHub links, or portfolio case studies.\\n- cover_letter_depth (1-10): Specificity of real-world problems solved vs generic buzzwords.\\n- availability_fit (1-10): Immediate start (<14 days) and Mon-Sat 3PM-11PM PHT shift.\\n- location_fit (1-10): 10 if Philippines-based; 0 otherwise.\\n- overall_score (1-100): Weighted calculation: (portfolio_quality * 3.5) + (experience_score * 2.0) + (cover_letter_depth * 1.5) + (availability_fit * 1.5) + (location_fit * 1.5).\\n\\nRECOMMENDATION RULES:\\n- overall_score >= 70: PASS\\n- 40 to 69: MAYBE\\n- < 40: REJECT\\n\\nIf recommendation is PASS or MAYBE, generate exactly 5 tailored, technical qualifying questions directly addressing specific tools, claims, or potential gaps mentioned in the candidate's submission.\\n\\nOUTPUT FORMAT:\\nReturn ONLY raw unformatted JSON. Do NOT wrap in markdown backticks or fences.\\n\\nSCHEMA:\\n{\\n  \\\"applicant_name\\\": string,\\n  \\\"experience_score\\\": number,\\n  \\\"portfolio_quality\\\": number,\\n  \\\"cover_letter_depth\\\": number,\\n  \\\"availability_fit\\\": number,\\n  \\\"location_fit\\\": number,\\n  \\\"overall_score\\\": number,\\n  \\\"recommendation\\\": \\\"PASS\\\" | \\\"MAYBE\\\" | \\\"REJECT\\\",\\n  \\\"reasoning\\\": string,\\n  \\\"qualifying_questions\\\": [string, string, string, string, string]\\n}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Candidate Submission to Evaluate:\\nFull Name: {{ $json.full_name }}\\nEmail: {{ $json.email }}\\nPosition: {{ $json.position }}\\nYears Experience: {{ $json.years_experience }}\\nPortfolio URL: {{ $json.portfolio_url }}\\nCover Letter: {{ $json.cover_letter }}\\nAvailability: {{ $json.availability_start }}\\nLocation: {{ $json.location }}\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        704,
+        144
+      ],
+      "id": "4779c8d7-6900-4c6c-af05-c90a9fe06a74",
+      "name": "HR AI Evaluator - Stage 1",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse & Validate Evaluation.').item.json.email }}",
+        "subject": "Next Step: Technical Qualifying Questions — Sunny AI Operator Application",
+        "message": "=<p>Hi {{ $('Parse & Validate Evaluation.').item.json.full_name || $('Parse & Validate Evaluation.').item.json.applicant_name }},</p>\n\n<p>Thank you for applying for the <strong>AI Operator</strong> position at <strong>Sunny</strong>. Our evaluation team reviewed your submission, and your background and portfolio scored strongly in our initial screening.</p>\n\n<p>Because we value <em>tools that run and save the team time</em>, the next step in our process is answering a few tailored technical qualifying questions directly related to your experience:</p>\n\n<ol>\n  <li><strong>{{ $('Parse & Validate Evaluation.').item.json.qualifying_questions[0] }}</strong></li>\n  <li><strong>{{ $('Parse & Validate Evaluation.').item.json.qualifying_questions[1] }}</strong></li>\n  <li><strong>{{ $('Parse & Validate Evaluation.').item.json.qualifying_questions[2] }}</strong></li>\n  <li><strong>{{ $('Parse & Validate Evaluation.').item.json.qualifying_questions[3] }}</strong></li>\n  <li><strong>{{ $('Parse & Validate Evaluation.').item.json.qualifying_questions[4] }}</strong></li>\n</ol>\n\n<p>Please submit your detailed answers via our qualifying portal here:<br>\n<a href=\"https://marcneil.app.n8n.cloud/webhook-test/qualifying-response?email={{ $('Parse & Validate Evaluation.').item.json.email }}\"><strong>👉 Submit Your Qualifying Responses</strong></a></p>\n\n<p>We evaluate answers on technical depth, error handling, and operational problem-solving.</p>\n\n<p>Best regards,<br>\n<strong>Sunny Talent & Operations Team</strong></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1712,
+        -176
+      ],
+      "id": "5e651b8f-5784-410b-a394-4671ec4ecb89",
+      "name": "Send Qualifying Questions Email",
+      "webhookId": "292e2b0a-887d-4f80-a287-a81b08ac4ad3",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Applications",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Full Name": "={{ $('Parse & Validate Evaluation.').item.json.applicant_name }}",
+            "Email": "={{ $('Parse & Validate Evaluation.').item.json.email }}",
+            "Position": "={{ $('Parse & Validate Evaluation.').item.json.position }}",
+            "Years Experience": "={{ $('Parse & Validate Evaluation.').item.json.years_experience }}",
+            "Portfolio URL": "={{ $('Parse & Validate Evaluation.').item.json.portfolio_url }}",
+            "Overall Score": "={{ $('Parse & Validate Evaluation.').item.json.overall_score }}",
+            "Recommendation": "={{ $('Parse & Validate Evaluation.').item.json.recommendation }}",
+            "Jev Reasoning": "={{ $('Parse & Validate Evaluation.').item.json.reasoning }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Full Name",
+              "displayName": "Full Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Position",
+              "displayName": "Position",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Years Experience",
+              "displayName": "Years Experience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Portfolio URL",
+              "displayName": "Portfolio URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Overall Score",
+              "displayName": "Overall Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Recommendation",
+              "displayName": "Recommendation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Jev Reasoning",
+              "displayName": "Jev Reasoning",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1184,
+        144
+      ],
+      "id": "02b5f0ae-ff65-4f23-abfd-b50b7966f18a",
+      "name": "Applications-DB",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "=marcneilbiz1@gmail.com",
+        "subject": "=[Review Required] Borderline AI Operator Candidate: {{ $('Parse & Validate Evaluation.').item.json.applicant_name }} (Score: {{ $('Parse & Validate Evaluation.').item.json.overall_score }})",
+        "message": "=<h3>Candidate Flagged for Human Review</h3>\n<p><strong>Candidate:</strong> {{ $('Parse & Validate Evaluation.').item.json.full_name || $('Parse & Validate Evaluation.').item.json.applicant_name }}</p>\n<p><strong>Email:</strong> {{ $('Parse & Validate Evaluation.').item.json.email }}</p>\n<p><strong>Overall Score:</strong> {{ $('Parse & Validate Evaluation.').item.json.overall_score }} / 100</p>\n<p><strong>Portfolio:</strong> <a href=\"{{ $('Parse & Validate Evaluation.').item.json.portfolio_url }}\">{{ $('Parse & Validate Evaluation.').item.json.portfolio_url }}</a></p>\n<p><strong>Database Record:</strong> <a href=\"https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=sharing\">View {{ $('Parse & Validate Evaluation.').item.json.full_name || $('Parse & Validate Evaluation.').item.json.applicant_name }} ({{ $('Parse & Validate Evaluation.').item.json.email }}) in Sunny Database ↗</a></p>\n<hr>\n<h4>Jev's Evaluation Reasoning:</h4>\n<p>{{ $('Parse & Validate Evaluation.').item.json.reasoning }}</p>\n<p><em>Please review this profile and decide whether to release qualifying questions manually.</em></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        128
+      ],
+      "id": "97d94b30-9c54-48be-9ef0-a4911f03ce60",
+      "name": "MAYBE (40-69)",
+      "webhookId": "40410058-fc16-43d7-be15-6630bec0fec6",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse & Validate Evaluation.').item.json.email }}",
+        "subject": "Update on your application for AI Operator — Sunny",
+        "message": "=<p>Hi {{ $('Parse & Validate Evaluation.').item.json.applicant_name }},</p> <p>Thank you for taking the time to apply for the <strong>AI Operator</strong> position at Sunny.</p> <p>We received a high volume of strong submissions for this role. While your background is impressive, we have decided to prioritize applicants whose specific tool and systems automation experience more closely aligns with our immediate technical stack needs.</p> <p>We keep all profiles on file as our team continues to expand, and we encourage you to stay connected for future openings.</p> <p>We wish you the very best in your search.</p> <p>Best regards,<br>The Sunny Talent Team</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1744,
+        416
+      ],
+      "id": "631d0670-c88d-44d2-bacc-0773fb2765e8",
+      "name": "Send Polite Rejection Email",
+      "webhookId": "b2b19ad5-60a9-48bc-a16f-88673e808d42",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Applications",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=0"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Email",
+              "lookupValue": "={{ $json.body.email }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        32,
+        16
+      ],
+      "id": "92434b7d-3f80-493c-ba66-32b986d6dcd9",
+      "name": "Check Previous Application",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Webhook').item.json.body.email }}",
+        "subject": "Update regarding your Sunny application",
+        "message": "=<p>Hi {{ $('Webhook').item.json.body.full_name }},</p> <p>Thank you for your continued interest in the <strong>AI Operator</strong> position at Sunny.</p> <p>Our records show that we received an application from you on <strong>{{ $json.Timestamp }}</strong>.</p> <p>To ensure fairness and allow candidates sufficient time to develop new portfolio projects, our policy requires a <strong>6-month cooldown window</strong> before re-evaluating applications for the same role.</p> <p>We invite you to re-apply after this period with your latest automation builds!</p> <p>Best regards,<br>The Sunny Talent Team</p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        -256
+      ],
+      "id": "aecd142c-0a2b-489d-b3f6-da7b1c33993f",
+      "name": "Send Cooldown Notice Email",
+      "webhookId": "84842327-31b6-457b-a406-addab7809478",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "4d769655-068c-407e-891c-6ec065c10f9b",
+              "leftValue": "={{ $json.Timestamp ? (new Date() - new Date($json.Timestamp)) / (1000 * 60 * 60 * 24) < 180 : false }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        256,
+        16
+      ],
+      "id": "d66b294b-33d6-43eb-8af8-9a9a259a77cc",
+      "name": "Cooldown Active?"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        240,
+        432
+      ],
+      "id": "df041e62-2d33-4ff1-a23c-bf6c0223ff87",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE",
+          "mode": "list",
+          "cachedResultName": "Sunny - AI Hiring Pipeline Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 746531179,
+          "mode": "list",
+          "cachedResultName": "Error Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZGd2FtDru6fHKMUW0EQjPz-59TT84RuL4wMxTDPEGE/edit#gid=746531179"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Workflow Name": "={{ $workflow.name }}",
+            "Failed Node": "={{ $json.execution.lastNodeExecuted }}",
+            "Error Message": "={{ $json.execution.error.message }}    ",
+            "Execution URL": "={{ $json.execution.url }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Workflow Name",
+              "displayName": "Workflow Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Failed Node",
+              "displayName": "Failed Node",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Error Message",
+              "displayName": "Error Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Execution URL",
+              "displayName": "Execution URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        464,
+        432
+      ],
+      "id": "5b815940-ff3c-4c23-be4b-837230b3d0c0",
+      "name": "DLQ - Log Error to Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7Asg4OxNFOMoj7Em",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "marcneilbiz1@gmail.com",
+        "subject": "=🚨 [CRITICAL ALERT] Pipeline Failure in {{ $workflow.name }}",
+        "message": "=<h3>⚠️ Automated Hiring Pipeline Incident Detected</h3> <p>An unhandled error occurred during candidate processing in workflow <strong>{{ $workflow.name }}</strong>.</p> <ul>   <li><strong>Failed Node:</strong> {{ $('Error Trigger').item.json.execution.lastNodeExecuted }}</li>   <li><strong>Error Summary:</strong> {{ $('Error Trigger').item.json.execution.error.message }}</li>   <li><strong>Timestamp:</strong> {{ $now.toISO() }}</li> </ul> <p><a href=\"{{ $('Error Trigger').item.json.execution.url }}\"><strong>👉 Inspect & Replay Execution in n8n</strong></a></p> <p><em>The failed payload has been quarantined into the Google Sheets Error Log tab.</em></p>",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        688,
+        432
+      ],
+      "id": "9e367671-0295-45b7-a7f7-d8fc17e8667b",
+      "name": "Alert System Admin (DLQ)",
+      "webhookId": "13235bf6-4399-4c66-a37a-b2e80d70495c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "TBdeFk4qF5foXIgu",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check Previous Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Evaluation.": {
+      "main": [
+        [
+          {
+            "node": "Applications-DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit": {
+      "main": [
+        [
+          {
+            "node": "HR AI Evaluator - Stage 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HR AI Evaluator - Stage 1": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Evaluation.",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Send Qualifying Questions Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MAYBE (40-69)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Polite Rejection Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Qualifying Questions Email": {
+      "main": [
+        []
+      ]
+    },
+    "Applications-DB": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Previous Application": {
+      "main": [
+        [
+          {
+            "node": "Cooldown Active?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cooldown Active?": {
+      "main": [
+        [
+          {
+            "node": "Send Cooldown Notice Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "DLQ - Log Error to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DLQ - Log Error to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Alert System Admin (DLQ)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "88df69ba-8941-4be7-8125-6cf182592eec",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "58d37d6e04d4c984684ef05422a30b0da4e2d43c399c6afb7f8bd18f64eedc73"
+  },
+  "nodeGroups": [],
+  "id": "mejiKW0BA6I7e4Rn",
+  "tags": []
+}
